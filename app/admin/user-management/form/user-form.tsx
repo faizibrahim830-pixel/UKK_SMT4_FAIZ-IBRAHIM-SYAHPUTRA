@@ -24,10 +24,39 @@ export function UserForm({ userId }: UserFormProps) {
   const [isLoading, setIsLoading] = useState(Boolean(userId))
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState("")
+  const [accountCodePreview, setAccountCodePreview] = useState<{ role: string; accountCode: string } | null>(null)
   const [fullname, setFullname] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [role, setRole] = useState("staff")
+  const accountCode = accountCodePreview?.role === role ? accountCodePreview.accountCode : ""
+  const isAccountCodeLoading = !userId && accountCodePreview?.role !== role
+
+  useEffect(() => {
+    if (userId) return
+
+    let isActive = true
+    async function loadNextAccountCode() {
+      try {
+        const response = await fetch("/api/users?page=1&pageSize=1", { cache: "no-store" })
+        const result = await response.json()
+        if (!response.ok) throw new Error(result.error ?? "Gagal memuat kode akun.")
+        const nextAccountCode = result.nextAccountCodes?.[role]
+        if (typeof nextAccountCode !== "string") throw new Error("Kode akun tidak tersedia.")
+        if (isActive) setAccountCodePreview({ role, accountCode: nextAccountCode })
+      } catch (loadError) {
+        if (isActive) {
+          setAccountCodePreview({ role, accountCode: "" })
+          setError(loadError instanceof Error ? loadError.message : "Gagal memuat kode akun.")
+        }
+      }
+    }
+
+    void loadNextAccountCode()
+    return () => {
+      isActive = false
+    }
+  }, [role, userId])
 
   useEffect(() => {
     if (!userId) return
@@ -101,6 +130,16 @@ export function UserForm({ userId }: UserFormProps) {
         <p className="mt-5 text-sm text-muted-foreground">Memuat user...</p>
       ) : userId && !user ? null : (
         <form onSubmit={handleSubmit} className="mt-5 grid gap-4 rounded-md border p-4 sm:grid-cols-2">
+          {!userId && (
+            <div className="grid gap-1.5 sm:col-span-2">
+              <label htmlFor="accountCode" className="text-sm font-medium">Kode akun</label>
+              <Input
+                id="accountCode"
+                value={isAccountCodeLoading ? "Memuat..." : accountCode}
+                readOnly
+              />
+            </div>
+          )}
           <div className="grid gap-1.5">
             <label htmlFor="fullname" className="text-sm font-medium">Nama lengkap</label>
             <Input id="fullname" value={fullname} onChange={(event) => setFullname(event.target.value)} required maxLength={191} />
@@ -127,7 +166,10 @@ export function UserForm({ userId }: UserFormProps) {
             <select
               id="role"
               value={role}
-              onChange={(event) => setRole(event.target.value)}
+              onChange={(event) => {
+                setAccountCodePreview(null)
+                setRole(event.target.value)
+              }}
               className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
             >
               <option value="admin">Admin</option>
@@ -139,7 +181,7 @@ export function UserForm({ userId }: UserFormProps) {
               <X aria-hidden="true" />
               Batal
             </Button>
-            <Button type="submit" disabled={isSaving}>
+            <Button type="submit" disabled={isSaving || (!userId && (isAccountCodeLoading || !accountCode))}>
               {isSaving ? "Menyimpan..." : user ? "Simpan perubahan" : "Buat user"}
             </Button>
           </div>
